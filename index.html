@@ -1,0 +1,1772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FinanceMind AI</title>
+  
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="m-0 p-0 overflow-hidden">
+
+  <div id="root"></div>
+
+  <script type="text/babel">
+    
+    // Destructure necessary visual vectors from the global lucide kit
+    const { 
+      Files, MessageSquare, BookOpen, BarChart2, GitCommit, Settings, 
+      Upload, Trash2, Eye, CheckCircle, CircleDashed, XCircle, Send, 
+      X, ZoomIn, ZoomOut, Sun, Moon, Sparkles, Check, Globe, RotateCw, 
+      Printer, Download, Layers, FileText, ExternalLink, Loader, Maximize2, 
+      Minimize2, ChevronDown, ChevronRight, Plus, Edit2, Play, Search, LayoutDashboard,
+      Menu, ChevronUp
+    } = lucide;
+
+    // --- STYLING CONSTANTS & DESIGN TOKENS (APPLE NEON STYLING) ---
+    const neonGradient = "bg-clip-text text-transparent bg-gradient-to-r from-[#3b82f6] via-[#a855f7] via-[#ec4899] to-[#f97316] font-sans tracking-tight font-extrabold";
+    const glassPanel = "bg-black/40 backdrop-blur-2xl border border-white/10 shadow-[0_12px_40px_rgba(0,0,0,0.5)] rounded-3xl";
+    const glassButton = "hover:bg-white/10 active:bg-white/5 transition-all duration-300 rounded-xl border border-white/10 backdrop-blur-md";
+
+    // --- EXPONENTIAL BACKOFF API CALL HANDLER ---
+    const makeApiCallWithBackoff = async (url, payload, retries = 5, delay = 1000) => {
+      for (let i = 0; i < retries; i++) {
+        try {
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          
+          if (response.ok) return await response.json();
+          
+          const errorData = await response.json().catch(() => ({}));
+          const errMsg = errorData.error?.message || `HTTP ${response.status}`;
+
+          if (response.status !== 429 && response.status < 500) {
+            throw new Error(errMsg);
+          }
+          
+          if (i === retries - 1) throw new Error(errMsg);
+
+          await new Promise(resolve => setTimeout(resolve, delay));
+          delay *= 2;
+        } catch (error) {
+          const isValidationFail = error.message && (
+            error.message.includes('API key') || 
+            error.message.includes('not valid') || 
+            error.message.includes('HTTP 4')
+          );
+          if (isValidationFail || i === retries - 1) {
+            throw error;
+          }
+          await new Promise(resolve => setTimeout(resolve, delay));
+          delay *= 2;
+        }
+      }
+      throw new Error("API request failed after max retries.");
+    };
+
+    // --- HELPER COMPONENT TO PARSE BOLD MARKDOWN IN CHAT AND NOTES ---
+    function formatMarkdownText(text) {
+      if (!text) return "";
+      const parts = text.split(/(\*\*.*?\*\*)/g);
+      return parts.map((part, index) => {
+        if (part.startsWith('**') && part.endsWith('**')) {
+          return <strong key={index} className="font-extrabold text-white">{part.slice(2, -2)}</strong>;
+        }
+        return <span key={index}>{part}</span>;
+      });
+    }
+
+    // --- PRELOADED REALISTIC STUDY RESOURCES ---
+    const initialDocuments = [
+      {
+        id: 'doc-1',
+        name: 'CBSE_Class12_Accountancy_SQP.pdf',
+        type: 'PDF',
+        status: 'Ready',
+        pages: 3,
+        topics: ['Partnership Accounts', 'Revaluation Balance Sheet', 'Cash Flow Analysis'],
+        active: true,
+        content: `CBSE Grade XII Accountancy (Code 055)\nOfficial Sample Question Paper & Core Curriculum Guide\n\n[PAGEBREAK]\n\nPART A: Accounting for Partnership Firms and Companies\n\nQ1. Amit and Beena are partners sharing profits in the ratio of 3:2. As per Partnership Deed, interest on drawings is to be charged at 10% p.a. Amit withdrew ₹12,000 regularly on the first day of every month during the year. Calculate interest on Amit's drawings. (3 Marks)\nKey parameters:\n- Total Drawings = ₹12,000 * 12 = ₹1,44,000\n- Rate of Interest = 10% p.a.\n- Interest Period = 6.5 months (since drawings made regularly on the first day of each month)\n- Formula: Interest on drawings = Total drawings * Rate/100 * 6.5/12\n\n[PAGEBREAK]\n\nQ2. Revaluation Adjustments:\nX, Y and Z were partners sharing profits in the ratio of 2:2:1. Z retires from the firm on 31st March. On that date, the Balance Sheet of the firm showed General Reserve of ₹50,000. Pass necessary journal entries for treatment of General Reserve on Z's retirement.\nSolution Guidance: General Reserve is distributed among all old partners in their old profit-sharing ratio:\nGeneral Reserve A/c Dr. 50,000\n  To X's Capital A/c 20,000\n  To Y's Capital A/c 20,000\n  To Z's Capital A/c 10,000`
+      },
+      {
+        id: 'doc-2',
+        name: 'CBSE_Introductory_Macroeconomics.pdf',
+        type: 'PDF',
+        status: 'Ready',
+        pages: 2,
+        topics: ['National Income Accounting', 'GDP Aggregates', 'Circular Flow of Income'],
+        active: true,
+        content: `Unit 1: National Income and Related Aggregates\nIntroductory Macroeconomics CBSE XII Syllabus Guide\n\n[PAGEBREAK]\n\n1. Circular Flow of Income (Two-Sector Economy)\nIn a simple two-sector closed economy:\n- Real Flow: Households provide factor services (Land, Labor, Capital, Enterprise) to firms. Firms provide goods and services back to households.\n- Money Flow: Firms pay factor income (Rent, Wages, Interest, Profits) to households. Households spend this income back to firms as consumer expenditure.\n\n2. Product, Income, and Expenditure Methods\nNational Income (NNP at FC) is computed via:\n1. Product Method (Value Added Method): Gross Value Added at MP less Consumption of Fixed Capital (Depreciation) and Net Indirect Taxes.\n2. Income Method: Sum of compensation of employees, operating surplus, and mixed income of self-employed.\n3. Expenditure Method: Sum of Private Final Consumption Expenditure, Government Final Consumption Expenditure, Gross Domestic Capital Formation, and Net Exports.`
+      }
+    ];
+
+    // --- CORE APP ---
+    function App() {
+      const [theme, setTheme] = React.useState('dark');
+      const [activeTab, setActiveTab] = React.useState('dashboard');
+      const [apiKey, setApiKey] = React.useState('');
+      const [apiStatus, setApiStatus] = React.useState('none');
+      const [apiErrorMsg, setApiErrorMsg] = React.useState('');
+      const [sourcesOnly, setSourcesOnly] = React.useState(true);
+      const [googleGrounding, setGoogleGrounding] = React.useState(false);
+
+      const [documents, setDocuments] = React.useState(initialDocuments);
+      const [viewingDoc, setViewingDoc] = React.useState(initialDocuments[0]);
+      const [isUploading, setIsUploading] = React.useState(false);
+      const [pdfLibLoaded, setPdfLibLoaded] = React.useState(false);
+      const [pdfZoom, setPdfZoom] = React.useState(100);
+      const [pdfMode, setPdfMode] = React.useState('light');
+
+      const [chatHistory, setChatHistory] = React.useState([
+        { role: 'assistant', content: "Hello! I am your FinanceMind AI co-pilot. Ingest study files in the Sources tab, select which ones you'd like me to read, and let's study! Try asking me general questions, or tell me to 'draw a market equilibrium curve', 'generate a mindmap of Balance of Payments', or 'summarize active document as a note' to see them construct automatically on your tab sheets!" }
+      ]);
+      const [chatInput, setChatInput] = React.useState('');
+      const [isThinking, setIsThinking] = React.useState(false);
+
+      const [notes, setNotes] = React.useState([
+        {
+          id: 'n-1',
+          title: 'Macroeconomics Core: GDP Aggregates',
+          content: `• **GDP at Market Price (GDP_MP)** represents the total market value of all final goods and services produced within a country's boundaries.\n• **NDP_MP** = GDP_MP - Depreciation (Consumption of Fixed Capital).\n• **NNP_FC (National Income)** = NDP_FC + Net Factor Income from Abroad (NFIA).\n• **Gross Value Added (GVA)** = Value of Output - Intermediate Consumption.`
+        },
+        {
+          id: 'n-2',
+          title: 'Circular Flow Analysis Summary',
+          content: `• Households are **primary owners** of factors of production.\n• Firms employ factors to manufacture output.\n• **Leakages** (Savings, Taxes, Imports) reduce circular flow velocity.\n• **Injections** (Investment, Government Spending, Exports) expand system output.`
+        }
+      ]);
+
+      const [generatedGraphs, setGeneratedGraphs] = React.useState([]);
+      const [activeGraphId, setActiveGraphId] = React.useState('');
+      const [selectedGraphType, setSelectedGraphType] = React.useState('market_equilibrium');
+
+      const [selectedMap, setSelectedMap] = React.useState('');
+      const [mindMapData, setMindMapData] = React.useState({});
+      const [collapsedNodes, setCollapsedNodes] = React.useState({}); 
+
+      const fileInputRef = React.useRef(null);
+      const chatBottomRef = React.useRef(null);
+
+      React.useEffect(() => {
+        if (window.pdfjsLib) {
+          setPdfLibLoaded(true);
+          return;
+        }
+        const script = window.document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js';
+        script.onload = () => {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+          setPdfLibLoaded(true);
+        };
+        window.document.head.appendChild(script);
+      }, []);
+
+      const validateApiKey = async (keyToValidate) => {
+        const trimmedKey = keyToValidate.trim();
+        if (!trimmedKey) {
+          setApiStatus('none');
+          setApiErrorMsg('');
+          return;
+        }
+        setApiStatus('checking');
+        setApiErrorMsg('');
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${trimmedKey}`;
+        const payload = {
+          contents: [{ parts: [{ text: "Key validation check. Respond with Connected" }] }]
+        };
+
+        try {
+          const data = await makeApiCallWithBackoff(url, payload, 3, 1000);
+          const outputText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (outputText) {
+            setApiStatus('valid');
+            setApiErrorMsg('Connection Established Successfully!');
+          } else {
+            setApiStatus('invalid');
+            setApiErrorMsg('Empty response payload returned.');
+          }
+        } catch (e) {
+          setApiStatus('invalid');
+          setApiErrorMsg(e.message || 'Verification Failed.');
+        }
+      };
+
+      const handleKeyChange = (val) => {
+        const cleanedKey = val.replace(/\s/g, ''); 
+        setApiKey(cleanedKey);
+        if (!cleanedKey) {
+          setApiStatus('none');
+          setApiErrorMsg('');
+        }
+      };
+
+      const handleFileUpload = (e) => {
+        const files = Array.from(e.target.files);
+        if (!files.length) return;
+
+        setIsUploading(true);
+
+        files.forEach((file) => {
+          const reader = new FileReader();
+          const fileExt = file.name.split('.').pop().toLowerCase();
+          const fileTypeLabel = fileExt.toUpperCase();
+          const objectUrl = URL.createObjectURL(file);
+
+          reader.onload = async (event) => {
+            let textContent = '';
+            let rawBuffer = event.target.result;
+            let finalPages = 1;
+
+            if (file.type.startsWith('text/') || fileExt === 'txt') {
+              textContent = new TextDecoder().decode(rawBuffer);
+            } else if (fileExt === 'pdf') {
+              if (window.pdfjsLib) {
+                try {
+                  const pdf = await window.pdfjsLib.getDocument({ data: rawBuffer }).promise;
+                  finalPages = pdf.numPages;
+                  let pageTexts = [];
+                  for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const textContentObj = await page.getTextContent();
+                    const pageText = textContentObj.items.map(item => item.str).join(' ');
+                    pageTexts.push(pageText || `[Empty Page ${i}]`);
+                  }
+                  textContent = pageTexts.join('\n[PAGEBREAK]\n');
+                } catch (err) {
+                  console.error("Local PDF parsing crashed, fallback to mock generation", err);
+                  textContent = `[Parsed PDF Ingestion Node: ${file.name}]\n\nUnable to extract native text layers. Rendering page canvas directly.`;
+                }
+              } else {
+                textContent = `[Parsed PDF Ingestion Node: ${file.name}]\n\nPDF reader libraries are loading. Launch PDF Viewer tab to view page canvas.`;
+              }
+            } else {
+              textContent = `[Ingested File: ${file.name}]\n\nUnsupported preview format. Text parser only processes PDF and plain text documents.`;
+            }
+
+            const detectedTopics = ['Study Source'];
+            const lowerName = file.name.toLowerCase();
+            if (lowerName.includes('account')) detectedTopics.push('Accountancy', 'Partnership');
+            if (lowerName.includes('gdp') || lowerName.includes('macro')) detectedTopics.push('Macroeconomics', 'GDP');
+            if (lowerName.includes('demand') || lowerName.includes('market')) detectedTopics.push('Microeconomics', 'Equilibrium');
+            if (lowerName.includes('cbse') || lowerName.includes('sqp')) detectedTopics.push('CBSE Prep', 'Model Paper');
+
+            const newDoc = {
+              id: `doc-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+              name: file.name,
+              type: fileTypeLabel,
+              status: 'Ready',
+              pages: finalPages,
+              topics: detectedTopics,
+              active: true,
+              content: textContent,
+              rawData: fileExt === 'pdf' ? rawBuffer : null,
+              fileUrl: fileExt === 'pdf' ? objectUrl : null
+            };
+
+            setDocuments(prev => [newDoc, ...prev]);
+            setViewingDoc(newDoc);
+            setIsUploading(false);
+          };
+
+          reader.onerror = () => {
+            setIsUploading(false);
+          };
+
+          reader.readAsArrayBuffer(file);
+        });
+
+        if (e.target) e.target.value = '';
+      };
+
+      const deleteDocument = (id) => {
+        setDocuments(prev => {
+          const filtered = prev.filter(doc => doc.id !== id);
+          if (viewingDoc && viewingDoc.id === id) {
+            setViewingDoc(filtered[0] || null);
+          }
+          return filtered;
+        });
+      };
+
+      const toggleDocumentContext = (id) => {
+        setDocuments(prev => prev.map(doc => doc.id === id ? { ...doc, active: !doc.active } : doc));
+      };
+
+      const renameDocument = (id, newName) => {
+        if (!newName.trim()) return;
+        setDocuments(prev => prev.map(doc => doc.id === id ? { ...doc, name: newName } : doc));
+        if (viewingDoc && viewingDoc.id === id) {
+          setViewingDoc(prev => ({ ...prev, name: newName }));
+        }
+      };
+
+      const generateDynamicNote = async (queryTopic, activeDocs) => {
+        const localId = `n-${Date.now()}`;
+        let defaultTitle = `Summary Note: ${viewingDoc ? viewingDoc.name : 'Study Note'}`;
+        let defaultContent = `• **Core Commerce** aggregates successfully parsed.\n• **System equilibrium** and partnership force calculations computed.\n• Important Formula: CBSE standard margins account for all specified variables.`;
+
+        if (!apiKey.trim() || apiStatus !== 'valid') {
+          let customTitle = defaultTitle;
+          let customContent = defaultContent;
+          
+          const topicLower = queryTopic.toLowerCase();
+          if (topicLower.includes('accountancy') || topicLower.includes('amit') || topicLower.includes('partnership')) {
+            customTitle = "Partnership Accounts Summary";
+            customContent = `• Amit withdrew **₹12,000** regularly on the first day of every month.\n• Interest on Amit's Drawings = **(Total Drawings * Rate/100 * 6.5/12)**\n• Total Drawings = ₹12,000 * 12 = **₹1,44,000**.\n• **Revaluation Account** is nominal in nature; profit or loss is distributed among partners in their old profit-sharing ratio.`;
+          } else if (topicLower.includes('gdp') || topicLower.includes('macro') || topicLower.includes('national income')) {
+            customTitle = "National Income & Related Aggregates";
+            customContent = `• **GDP at Market Price** represents the value of all final outputs produced within domestic boundaries.\n• **Real Flow** comprises land, labor, capital, and enterprise moving from households to firms.\n• **Money Flow** aggregates factor payments (rent, wages, interest, profits) paid back to households.`;
+          }
+
+          setNotes(prev => [{ id: localId, title: customTitle, content: customContent }, ...prev]);
+          return;
+        }
+
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+        const systemPrompt = "You are a professional academic notes taking assistant. Based on the user topic and documents, generate a highly structured high-yield revision card. Use asterisks like **keyword** to highlight critical points. You must return ONLY a valid JSON object matching this schema: { \"title\": \"short note title\", \"content\": \"detailed bullet points notes content\" }";
+        
+        let docContext = "";
+        activeDocs.forEach(doc => {
+          docContext += `\n[Document: ${doc.name}]\n${doc.content}\n`;
+        });
+
+        const payload = {
+          contents: [{ role: "user", parts: [{ text: `Generate study notes for topic: "${queryTopic}". Reference Context: ${docContext}` }] }],
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          generationConfig: { 
+            responseMimeType: "application/json"
+          }
+        };
+
+        try {
+          const data = await makeApiCallWithBackoff(url, payload, 3, 1000);
+          const jsonText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (jsonText) {
+            const parsedNote = JSON.parse(jsonText);
+            setNotes(prev => [{
+              id: `n-${Date.now()}`,
+              title: parsedNote.title || defaultTitle,
+              content: parsedNote.content || defaultContent
+            }, ...prev]);
+          }
+        } catch (e) {
+          setNotes(prev => [{ id: localId, title: defaultTitle, content: defaultContent }, ...prev]);
+        }
+      };
+
+      const generateDynamicMindMap = async (topic) => {
+        const localId = `map-${Date.now()}`;
+        let customNode = null;
+        const lowerTopic = topic.toLowerCase();
+
+        if (lowerTopic.includes('bop') || lowerTopic.includes('balance of payment') || lowerTopic.includes('payments')) {
+          customNode = {
+            id: localId,
+            name: 'Balance of Payments (BoP)',
+            desc: 'Syllabus Economics XII',
+            children: [
+              {
+                id: `${localId}-c1`,
+                name: 'Current Account',
+                desc: 'Trade in goods & services',
+                children: [
+                  { id: `${localId}-c1-1`, name: 'Merchandise (Visibles)', desc: 'Export & Import of tangible goods' },
+                  { id: `${localId}-c1-2`, name: 'Invisibles Transactions', desc: 'Services, Factor Income, Transfers' }
+                ]
+              },
+              {
+                id: `${localId}-c2`,
+                name: 'Capital Account',
+                desc: 'Asset ownership transfers',
+                children: [
+                  { id: `${localId}-c2-1`, name: 'Foreign Investments', desc: 'FDI and FII / Portfolio' },
+                  { id: `${localId}-c2-2`, name: 'Borrowings & Assistance', desc: 'External commercial loans' }
+                ]
+              }
+            ]
+          };
+        } else if (lowerTopic.includes('national income') || lowerTopic.includes('gdp')) {
+          customNode = {
+            id: localId,
+            name: 'National Income Accounting',
+            desc: 'NNP at Factor Cost',
+            children: [
+              {
+                id: `${localId}-c1`,
+                name: 'Aggregating Methods',
+                desc: 'Triple flow measurement',
+                children: [
+                  { id: `${localId}-c1-1`, name: 'Product Method', desc: 'Gross Value Added at MP less Depreciation' },
+                  { id: `${localId}-c1-2`, name: 'Income Method', desc: 'Operating Surplus + Compensations' },
+                  { id: `${localId}-c1-3`, name: 'Expenditure Method', desc: 'Aggregates final consumption spend' }
+                ]
+              },
+              {
+                id: `${localId}-c2`,
+                name: 'Key Aggregates',
+                desc: 'Syllabus standards',
+                children: [
+                  { id: `${localId}-c2-1`, name: 'GDP vs GNP', desc: 'Boundary vs Citizenship value' },
+                  { id: `${localId}-c2-2`, name: 'Depreciation factor', desc: 'Consumption of fixed capital' }
+                ]
+              }
+            ]
+          };
+        } else {
+          customNode = {
+            id: localId,
+            name: topic,
+            desc: 'Custom Concepts Map',
+            children: [
+              {
+                id: `${localId}-c1`,
+                name: 'Core Variables',
+                desc: 'Primary indicators',
+                children: [
+                  { id: `${localId}-c1-1`, name: 'Conceptual Framework', desc: 'Syllabus guidelines' }
+                ]
+              }
+            ]
+          };
+        }
+
+        if (!apiKey.trim() || apiStatus !== 'valid') {
+          setMindMapData(prev => ({ ...prev, [localId]: customNode }));
+          setSelectedMap(localId);
+          return;
+        }
+
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+        const systemPrompt = 
+          "You are a structured mind map generator. Create a hierarchical conceptual tree based on the user topic. " +
+          "You must return ONLY a valid JSON object matching this schema:\n" +
+          "{\n" +
+          "  \"id\": \"string unique root identifier\",\n" +
+          "  \"name\": \"string concept name\",\n" +
+          "  \"desc\": \"short description\",\n" +
+          "  \"children\": [\n" +
+          "    {\n" +
+          "      \"id\": \"unique sub-identifier\",\n" +
+          "      \"name\": \"subconcept name\",\n" +
+          "      \"desc\": \"short description\",\n" +
+          "      \"children\": [\n" +
+          "        { \"id\": \"leaf-id\", \"name\": \"leaf concept\", \"desc\": \"leaf desc\" }\n" +
+          "      ]\n" +
+          "    }\n" +
+          "  ]\n" +
+          "}";
+
+        const payload = {
+          contents: [{ role: "user", parts: [{ text: `Generate a mind map for topic: "${topic}"` }] }],
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          generationConfig: { responseMimeType: "application/json" }
+        };
+
+        try {
+          const data = await makeApiCallWithBackoff(url, payload, 3, 1000);
+          const jsonText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (jsonText) {
+            const parsedMap = JSON.parse(jsonText);
+            const mapKey = `custom-${Date.now()}`;
+            setMindMapData(prev => ({ ...prev, [mapKey]: parsedMap }));
+            setSelectedMap(mapKey);
+          }
+        } catch (e) {
+          setMindMapData(prev => ({ ...prev, [localId]: customNode }));
+          setSelectedMap(localId);
+        }
+      };
+
+      const handleChatSend = async () => {
+        if (!chatInput.trim() || isThinking) return;
+
+        const query = chatInput;
+        setChatHistory(prev => [...prev, { role: 'user', content: query }]);
+        setChatInput('');
+        setIsThinking(true);
+
+        const activeDocs = documents.filter(d => d.active);
+        const lowerQ = query.toLowerCase();
+
+        let interceptGraphType = null;
+        let shiftValue = 0;
+        let ceilingFloor = 'none';
+        let taxSubsidy = 'none';
+
+        if (lowerQ.includes('graph') || lowerQ.includes('draw') || lowerQ.includes('curve') || lowerQ.includes('equilibrium') || lowerQ.includes('model')) {
+          if (lowerQ.includes('ad-as') || lowerQ.includes('aggregate')) {
+            interceptGraphType = 'ad_as';
+          } else if (lowerQ.includes('inflation') || lowerQ.includes('gdp')) {
+            interceptGraphType = 'inflation_gdp';
+          } else {
+            interceptGraphType = 'market_equilibrium';
+          }
+
+          if (lowerQ.includes('right') || lowerQ.includes('increase') || lowerQ.includes('expand')) {
+            shiftValue = 30;
+          } else if (lowerQ.includes('left') || lowerQ.includes('decrease') || lowerQ.includes('contract')) {
+            shiftValue = -30;
+          }
+
+          if (lowerQ.includes('ceiling') || lowerQ.includes('maximum price')) {
+            ceilingFloor = 'ceiling';
+          } else if (lowerQ.includes('floor') || lowerQ.includes('minimum price')) {
+            ceilingFloor = 'floor';
+          }
+
+          if (lowerQ.includes('tax')) {
+            taxSubsidy = 'tax';
+          } else if (lowerQ.includes('subsidy')) {
+            taxSubsidy = 'subsidy';
+          }
+        }
+
+        let triggerMindMapTopic = null;
+        if (lowerQ.includes('mind map') || lowerQ.includes('mindmap') || lowerQ.includes('concept map') || lowerQ.includes('conceptmap') || lowerQ.includes('hierarchy tree')) {
+          const match = query.match(/(?:mind\s?map\s+for|mindmap\s+for|mind\s?map\s+of|mindmap\s+of|concept\s?tree\s+for|concept\s?map\s+of)\s+([^?.]+)/i);
+          triggerMindMapTopic = match ? match[1].trim() : null;
+          if (!triggerMindMapTopic) {
+            triggerMindMapTopic = query.replace(/mind\s?map/gi, '').replace(/mindmap/gi, '').replace(/generate/gi, '').replace(/create/gi, '').replace(/draw/gi, '').trim();
+            if (!triggerMindMapTopic) triggerMindMapTopic = "Study Concept";
+          }
+        }
+
+        let triggerNotes = false;
+        if (lowerQ.includes('note') || lowerQ.includes('summarize') || lowerQ.includes('summary') || lowerQ.includes('bullet points')) {
+          triggerNotes = true;
+        }
+
+        if (interceptGraphType || triggerMindMapTopic || triggerNotes) {
+          if (interceptGraphType) {
+            const newGraphId = `graph-${Date.now()}`;
+            const newGraphObj = {
+              id: newGraphId,
+              type: interceptGraphType,
+              shiftValue: shiftValue,
+              ceilingFloor: ceilingFloor,
+              taxSubsidy: taxSubsidy,
+              title: interceptGraphType === 'market_equilibrium' ? 'Market Equilibrium' : (interceptGraphType === 'ad_as' ? 'AD-AS Model' : 'GDP & Inflation Gap')
+            };
+            setGeneratedGraphs(prev => [...prev, newGraphObj]);
+            setActiveGraphId(newGraphId);
+            setActiveTab('graphs');
+            setChatHistory(prev => [...prev, { role: 'assistant', content: `I have plotted your customized Economic Diagram inside the **Graphs Tab**!\n\nParameters applied:\n- Graph Model: ${interceptGraphType}\n- Curve shift: ${shiftValue}` }]);
+          }
+          if (triggerMindMapTopic) {
+            await generateDynamicMindMap(triggerMindMapTopic);
+            setActiveTab('mindmaps');
+            setChatHistory(prev => [...prev, { role: 'assistant', content: `I have successfully constructed a hierarchical Mind Map for **${triggerMindMapTopic}**! You can expand or collapse the nested sections inside the **Mind Maps Tab**.` }]);
+          }
+          if (triggerNotes) {
+            await generateDynamicNote(query, activeDocs);
+            setActiveTab('notes');
+            setChatHistory(prev => [...prev, { role: 'assistant', content: `I have dynamically generated a high-yield study note card inside your **Notes Tab** based on your request: "${query}"!` }]);
+          }
+          setIsThinking(false);
+          return; 
+        }
+
+        let systemPrompt = "You are a professional, friendly, and agentic AI co-pilot designed to help Commerce, Economics, and Accountancy students master syllabus topics. Provide safe, age-appropriate (under 18), clean, and healthy responses, avoiding any harmful, illegal, or suggestive topics like drugs, tobacco, gambling, or violence.\n\n";
+
+        if (activeDocs.length > 0) {
+          if (sourcesOnly) {
+            systemPrompt += "STRICT SOURCE MODE IS ACTIVE. You must answer the user's question using ONLY the provided document context below. If the answer is not in the context, state that you cannot find it in the uploaded documents. Do not use outside knowledge.\n\n";
+          } else {
+            systemPrompt += "You should use the provided document context below as your primary reference, but you are free to use your general economics/accountancy knowledge to expand or answer general questions.\n\n";
+          }
+          
+          systemPrompt += "--- START OF UPLOADED DOCUMENT CONTEXT ---\n";
+          activeDocs.forEach(doc => {
+            systemPrompt += `\n[DOCUMENT: ${doc.name}]\n${doc.content.replace(/\[PAGEBREAK\]/g, '\n')}\n`;
+          });
+          systemPrompt += "--- END OF UPLOADED DOCUMENT CONTEXT ---\n";
+        } else {
+          systemPrompt += "No documents are currently active. Answer using your general knowledge.";
+        }
+
+        if (apiKey.trim() && apiStatus === 'valid') {
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+          const payload = {
+            contents: [{ role: "user", parts: [{ text: `${systemPrompt}\n\nUser Question: ${query}` }] }]
+          };
+
+          if (googleGrounding) {
+            payload.tools = [{ "google_search": {} }];
+          }
+
+          try {
+            const result = await makeApiCallWithBackoff(url, payload, 5, 1000);
+            const text = result?.candidates?.[0]?.content?.parts?.[0]?.text || "No response received. Please try again.";
+            setChatHistory(prev => [...prev, { role: 'assistant', content: text }]);
+          } catch (err) {
+            setChatHistory(prev => [...prev, { role: 'assistant', content: `API Error: ${err.message}` }]);
+          } finally {
+            setIsThinking(false);
+          }
+        } else {
+          setTimeout(() => {
+            let response = `[Simulation Sandbox Mode] Local knowledge processed: "${query}". Setup key in Settings for full agentic live answers.`;
+            setChatHistory(prev => [...prev, { role: 'assistant', content: response }]);
+            setIsThinking(false);
+          }, 1000);
+        }
+      };
+
+      const renderSelectedTab = () => {
+        switch (activeTab) {
+          case 'dashboard':
+            return <DashboardTab setActiveTab={setActiveTab} theme={theme} />;
+          case 'sources':
+            return (
+              <SourcesTab 
+                documents={documents} 
+                viewingDoc={viewingDoc} 
+                setViewingDoc={setViewingDoc}
+                toggleDocumentContext={toggleDocumentContext}
+                deleteDocument={deleteDocument}
+                renameDocument={renameDocument}
+                handleFileUpload={handleFileUpload}
+                isUploading={isUploading}
+                theme={theme}
+                setActiveTab={setActiveTab}
+              />
+            );
+          case 'pdfviewer':
+            return (
+              <PdfViewerTab 
+                viewingDoc={viewingDoc}
+                pdfLibLoaded={pdfLibLoaded}
+                pdfZoom={pdfZoom}
+                setPdfZoom={setPdfZoom}
+                pdfMode={pdfMode}
+                setPdfMode={setPdfMode}
+                theme={theme}
+              />
+            );
+          case 'chat':
+            return (
+              <ChatWorkspace 
+                chatHistory={chatHistory} 
+                chatInput={chatInput} 
+                setChatInput={setChatInput} 
+                handleChatSend={handleChatSend} 
+                isThinking={isThinking} 
+                theme={theme}
+                sourcesOnly={sourcesOnly}
+                activeDocsCount={documents.filter(d => d.active).length}
+                chatBottomRef={chatBottomRef}
+              />
+            );
+          case 'notes':
+            return <NotesTab notes={notes} setNotes={setNotes} theme={theme} />;
+          case 'graphs':
+            return (
+              <GraphsTab 
+                generatedGraphs={generatedGraphs}
+                activeGraphId={activeGraphId}
+                setActiveGraphId={setActiveGraphId}
+                setGeneratedGraphs={setGeneratedGraphs}
+                theme={theme} 
+              />
+            );
+          case 'mindmaps':
+            return (
+              <MindMapsTab 
+                selectedMap={selectedMap}
+                setSelectedMap={setSelectedMap}
+                collapsedNodes={collapsedNodes}
+                setCollapsedNodes={setCollapsedNodes}
+                theme={theme} 
+                mindMapData={mindMapData}
+              />
+            );
+          case 'settings':
+            return (
+              <SettingsTab 
+                apiKey={apiKey} 
+                handleKeyChange={handleKeyChange} 
+                apiStatus={apiStatus} 
+                apiErrorMsg={apiErrorMsg}
+                validateApiKey={validateApiKey}
+                sourcesOnly={sourcesOnly}
+                setSourcesOnly={setSourcesOnly}
+                googleGrounding={googleGrounding}
+                setGoogleGrounding={setGoogleGrounding}
+                theme={theme} 
+              />
+            );
+          default:
+            return null;
+        }
+      };
+
+      return (
+        <div className={`h-screen w-screen flex flex-col transition-colors duration-300 font-sans overflow-hidden ${
+          theme === 'dark' ? 'bg-[#050507] text-zinc-100' : 'bg-[#f4f4f7] text-zinc-800'
+        }`}>
+          {theme === 'dark' && (
+            <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
+              <div className="absolute top-[-10%] left-[-15%] w-[60vw] h-[60vw] rounded-full bg-blue-600/10 mix-blend-screen filter blur-[150px] animate-pulse"></div>
+              <div className="absolute bottom-[-10%] right-[-15%] w-[50vw] h-[50vw] rounded-full bg-purple-600/10 mix-blend-screen filter blur-[140px]"></div>
+              <div className="absolute top-[30%] right-[10%] w-[40vw] h-[40vw] rounded-full bg-cyan-600/10 mix-blend-screen filter blur-[120px]"></div>
+            </div>
+          )}
+
+          <input 
+            type="file" 
+            id="file-upload-input"
+            onChange={handleFileUpload} 
+            multiple 
+            accept=".pdf,.docx,.pptx,.txt" 
+            className="opacity-0 absolute w-0 h-0 pointer-events-none" 
+          />
+
+          <header className="p-6 shrink-0 relative z-10 flex justify-between items-center max-w-7xl w-full mx-auto select-none">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-gradient-to-tr from-blue-500 to-purple-600 rounded-2xl shadow-lg shadow-blue-500/20">
+                <Sparkles size={20} className="text-white" />
+              </div>
+              <div>
+                <h1 className={`text-2xl ${neonGradient}`}>FinanceMind AI</h1>
+                <p className="text-[10px] text-zinc-500 uppercase tracking-widest mt-0.5">--shashank</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 text-xs">
+                <span className="text-zinc-500">LLM Endpoint:</span>
+                <span className={`w-2.5 h-2.5 rounded-full ${
+                  apiStatus === 'valid' ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' :
+                  apiStatus === 'checking' ? 'bg-yellow-400 animate-pulse' : 'bg-red-500'
+                }`}></span>
+                <span className="text-[10px] font-mono text-zinc-400 uppercase">
+                  {apiStatus === 'valid' ? 'ONLINE' : apiStatus === 'checking' ? 'CHECKING' : 'SANDBOX'}
+                </span>
+              </div>
+
+              <button 
+                onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                className={`p-2.5 rounded-xl transition-all ${glassButton}`}
+              >
+                {theme === 'dark' ? <Sun size={15} className="text-yellow-400" /> : <Moon size={15} className="text-purple-600" />}
+              </button>
+            </div>
+          </header>
+
+          <main className="flex-1 flex flex-col h-full relative z-10 overflow-hidden max-w-7xl w-full mx-auto px-6 pb-6">
+            <div className="w-full mb-6">
+              <div className="grid grid-cols-4 lg:grid-cols-8 gap-2 p-1.5 bg-white/5 backdrop-blur-md rounded-2xl border border-white/10 shadow-[0_4px_30px_rgba(0,0,0,0.2)]">
+                <TabNavButton id="dashboard" label="Dashboard" active={activeTab} onClick={setActiveTab} icon={<LayoutDashboard size={15} />} />
+                <TabNavButton id="sources" label="Sources" active={activeTab} onClick={setActiveTab} icon={<Files size={15} />} />
+                <TabNavButton id="pdfviewer" label="PDF Viewer" active={activeTab} onClick={setActiveTab} icon={<Eye size={15} />} />
+                <TabNavButton id="chat" label="Chat" active={activeTab} onClick={setActiveTab} icon={<MessageSquare size={15} />} />
+                <TabNavButton id="notes" label="Notes" active={activeTab} onClick={setActiveTab} icon={<BookOpen size={15} />} />
+                <TabNavButton id="graphs" label="Graphs" active={activeTab} onClick={setActiveTab} icon={<BarChart2 size={15} />} />
+                <TabNavButton id="mindmaps" label="Mind Maps" active={activeTab} onClick={setActiveTab} icon={<GitCommit size={15} />} />
+                <TabNavButton id="settings" label="Settings" active={activeTab} onClick={setActiveTab} icon={<Settings size={15} />} />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-hidden">
+              <div className={`${glassPanel} h-full p-8 flex flex-col relative overflow-hidden`}>
+                {renderSelectedTab()}
+              </div>
+            </div>
+          </main>
+        </div>
+      );
+    }
+
+    // ============================================================================
+    // WORKSPACE SUB-COMPONENTS
+    // ============================================================================
+
+    function TabNavButton({ id, label, active, onClick, icon }) {
+      const isSelected = active === id;
+      return (
+        <button
+          onClick={() => onClick(id)}
+          className={`w-full py-3.5 rounded-xl text-xs font-semibold tracking-wide flex items-center justify-center gap-2 transition-all ${
+            isSelected 
+              ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30' 
+              : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+          }`}
+        >
+          {icon}
+          <span>{label}</span>
+        </button>
+      );
+    }
+
+    function DashboardTab({ setActiveTab, theme }) {
+      const cards = [
+        { id: 'sources', label: 'Sources', icon: <Files size={24} className="text-blue-400" />, desc: 'Upload, manage, rename, and select study resource files.' },
+        { id: 'pdfviewer', label: 'PDF Viewer', icon: <Eye size={24} className="text-emerald-400" />, desc: 'Inspect actual uploaded PDF and text file layout pages without blocks.' },
+        { id: 'chat', label: 'Chat Assistant', icon: <MessageSquare size={24} className="text-purple-400" />, desc: 'Query context documents or discuss generic educational concepts.' },
+        { id: 'notes', label: 'Revision Notes', icon: <BookOpen size={24} className="text-pink-400" />, desc: 'Read high-yield summaries generated dynamically by the co-pilot.' },
+        { id: 'graphs', label: 'Graphs Engine', icon: <BarChart2 size={24} className="text-orange-400" />, desc: 'Draw, customize, and shift CBSE exam-style micro and macro diagrams.' },
+        { id: 'mindmaps', label: 'Mind Maps', icon: <GitCommit size={24} className="text-cyan-400" />, desc: 'Analyze collapsible concept hierarchy structures.' },
+        { id: 'settings', label: 'Settings', icon: <Settings size={24} className="text-zinc-400" />, desc: 'Validate credentials and modify active context options.' }
+      ];
+
+      return (
+        <div className="flex-1 flex flex-col space-y-8 animate-in fade-in duration-500 overflow-y-auto pr-2 min-h-0">
+          <div className="text-center space-y-3 py-4">
+            <h2 className={`text-4xl ${neonGradient}`}>Welcome to FinanceMind AI Dashboard</h2>
+            <p className="text-zinc-400 text-xs max-w-xl mx-auto">
+              An intuitive and interactive learning suite optimized for Finance, Accountancy, Economics, and Commerce aggregates.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {cards.map(card => (
+              <button
+                key={card.id}
+                onClick={() => setActiveTab(card.id)}
+                className="p-6 text-left rounded-3xl border border-white/10 bg-white/5 hover:bg-white/10 active:scale-95 transition-all duration-300 flex flex-col justify-between h-48 hover:shadow-[0_0_24px_rgba(168,85,247,0.25)] hover:border-purple-500/40 group"
+              >
+                <div className="p-3 bg-white/5 rounded-2xl w-fit group-hover:scale-110 transition-transform">
+                  {card.icon}
+                </div>
+                <div className="space-y-1.5 mt-auto w-full">
+                  <h3 className="text-sm font-bold text-white group-hover:text-purple-300 transition-colors">{card.label}</h3>
+                  <p className="text-[11px] text-zinc-400 leading-relaxed line-clamp-2">{card.desc}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    function SourcesTab({ documents, viewingDoc, setViewingDoc, toggleDocumentContext, deleteDocument, renameDocument, handleFileUpload, isUploading, theme, setActiveTab }) {
+      const [isEditingName, setIsEditingName] = React.useState(null);
+      const [tempName, setTempName] = React.useState('');
+
+      return (
+        <div className="flex-1 flex flex-col space-y-6 min-h-0">
+          <div className="flex justify-between items-center border-b border-white/5 pb-4 shrink-0">
+            <div>
+              <h2 className={`text-2xl ${neonGradient}`}>Knowledge Repository</h2>
+              <p className="text-xs text-zinc-500 mt-1">Manage files, rename references, toggle AI context, or launch the dedicated viewer tab.</p>
+            </div>
+            
+            <label 
+              htmlFor="file-upload-input"
+              className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all shadow-md cursor-pointer active:scale-95"
+            >
+              {isUploading ? <CircleDashed className="animate-spin" size={13} /> : <Upload size={13} />}
+              Upload Files
+            </label>
+          </div>
+
+          {documents.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-center py-20 text-zinc-500 space-y-4 min-h-0">
+              <FileText size={48} className="opacity-20" />
+              <p className="text-xs">No files uploaded. Drop textbook chapters or papers in the selector to start.</p>
+            </div>
+          ) : (
+            <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 overflow-y-auto p-2 min-h-0">
+              {documents.map(doc => (
+                <div 
+                  key={doc.id}
+                  className={`p-6 rounded-3xl border transition-all relative group flex flex-col justify-between h-64 ${
+                    viewingDoc?.id === doc.id
+                      ? 'bg-purple-500/10 border-purple-500/40 shadow-lg'
+                      : 'bg-zinc-900/10 border-white/5 hover:bg-zinc-900/25'
+                  }`}
+                >
+                  <div className="flex justify-between items-start w-full">
+                    <span className={`px-2 py-0.5 text-[8px] font-mono rounded font-bold uppercase ${
+                      doc.type === 'PDF' ? 'bg-red-500/10 text-red-400' : 'bg-blue-500/10 text-blue-400'
+                    }`}>
+                      {doc.type}
+                    </span>
+                    
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsEditingName(doc.id);
+                          setTempName(doc.name);
+                        }}
+                        className="p-1.5 hover:bg-white/10 rounded text-zinc-400 hover:text-white"
+                      >
+                        <Edit2 size={11} />
+                      </button>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteDocument(doc.id);
+                        }}
+                        className="p-1.5 hover:bg-white/10 rounded text-zinc-400 hover:text-red-400"
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="my-3">
+                    {isEditingName === doc.id ? (
+                      <div className="flex gap-1.5" onClick={e => e.stopPropagation()}>
+                        <input 
+                          type="text"
+                          value={tempName}
+                          onChange={e => setTempName(e.target.value)}
+                          className="bg-black/60 border border-white/10 rounded px-2 py-1 text-xs text-white flex-1 outline-none"
+                        />
+                        <button 
+                          onClick={() => {
+                            renameDocument(doc.id, tempName);
+                            setIsEditingName(null);
+                          }}
+                          className="p-1 bg-green-600 text-white rounded"
+                        >
+                          <Check size={11} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div>
+                        <h3 className="text-xs font-bold truncate text-zinc-100 mb-1" title={doc.name}>{doc.name}</h3>
+                        <p className="text-[9px] text-zinc-500 font-mono">Pages: {doc.pages}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-4 mt-auto">
+                    <div className="flex flex-wrap gap-1">
+                      {doc.topics.slice(0, 2).map((t, idx) => (
+                        <span key={idx} className="px-1.5 py-0.5 rounded bg-white/5 border border-white/5 text-[9px] text-zinc-400">
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => {
+                          setViewingDoc(doc);
+                          setActiveTab('pdfviewer');
+                        }}
+                        className="flex-1 py-2 bg-purple-600 hover:bg-purple-500 rounded-xl text-[10px] font-bold text-white flex items-center justify-center gap-1 shadow transition-all active:scale-95"
+                      >
+                        <Eye size={12} />
+                        View PDF in App
+                      </button>
+
+                      <button 
+                        onClick={() => toggleDocumentContext(doc.id)}
+                        className={`px-3 py-2 rounded-xl text-[9px] font-bold border transition-colors flex items-center gap-1 ${
+                          doc.active 
+                            ? 'bg-green-500/10 border-green-500/30 text-green-400' 
+                            : 'bg-zinc-700/10 border-zinc-700/20 text-zinc-500'
+                        }`}
+                      >
+                        <Check size={9} />
+                        {doc.active ? "Context Active" : "Disabled"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function PdfViewerTab({ viewingDoc, pdfLibLoaded, pdfZoom, setPdfZoom, pdfMode, setPdfMode, theme }) {
+      const [showSidebar, setShowSidebar] = React.useState(true);
+      const pagesToRender = viewingDoc ? viewingDoc.content.split('[PAGEBREAK]') : [];
+      const totalPages = viewingDoc ? (viewingDoc.type === 'PDF' && viewingDoc.rawData ? viewingDoc.pages : pagesToRender.length) : 0;
+
+      return (
+        <div className="flex-1 flex flex-col bg-[#525659] rounded-3xl overflow-hidden shadow-inner relative border border-white/10 animate-in fade-in duration-300 h-full min-h-0">
+          <div className="flex flex-wrap justify-between items-center bg-[#323639] border-b border-[#1c1c1c] px-4 py-2.5 text-zinc-300 text-xs shadow-md z-20 w-full select-none shrink-0">
+            <div className="flex items-center gap-4">
+              <button onClick={() => setShowSidebar(!showSidebar)} className="p-1.5 hover:bg-white/10 rounded transition-colors" title="Toggle Sidebar">
+                <Menu size={16} />
+              </button>
+              <div className="flex items-center gap-2">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/8/87/PDF_file_icon.svg" alt="PDF" className="w-4 h-4 opacity-80" />
+                <span className="font-semibold text-white truncate max-w-[150px] md:max-w-[250px]">
+                  {viewingDoc ? viewingDoc.name : "No Document"}
+                </span>
+              </div>
+            </div>
+
+            {viewingDoc && (
+              <div className="flex items-center gap-6">
+                <div className="flex items-center gap-1.5 hidden sm:flex">
+                  <button className="p-1 hover:bg-white/10 rounded"><ChevronUp size={16} /></button>
+                  <div className="flex items-center gap-2 font-mono">
+                    <input 
+                      type="text" 
+                      value="1" 
+                      readOnly 
+                      className="w-8 bg-[#1e1e1e] border border-zinc-600 rounded text-center py-0.5 text-white outline-none"
+                    />
+                    <span className="text-zinc-400">/ {totalPages}</span>
+                  </div>
+                  <button className="p-1 hover:bg-white/10 rounded"><ChevronDown size={16} /></button>
+                </div>
+
+                <div className="w-[1px] h-5 bg-zinc-600 hidden sm:block"></div>
+
+                <div className="flex items-center gap-1 font-mono">
+                  <button onClick={() => setPdfZoom(Math.max(50, pdfZoom - 25))} className="p-1 hover:bg-white/10 rounded"><ZoomOut size={16} /></button>
+                  <span className="w-12 text-center text-white">{pdfZoom}%</span>
+                  <button onClick={() => setPdfZoom(Math.min(200, pdfZoom + 25))} className="p-1 hover:bg-white/10 rounded"><ZoomIn size={16} /></button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => setPdfMode(pdfMode === 'light' ? 'dark' : 'light')}
+                className={`p-1.5 rounded text-xs tracking-wider flex items-center gap-1.5 transition-all ${
+                  pdfMode === 'dark' ? 'bg-purple-500/20 text-purple-400' : 'hover:bg-white/10 text-zinc-400 hover:text-white'
+                }`}
+                title="Toggle Reading Mode"
+              >
+                <Layers size={15} />
+              </button>
+              
+              <div className="w-[1px] h-5 bg-zinc-600 mx-1"></div>
+
+              {viewingDoc && viewingDoc.fileUrl && (
+                <button 
+                  onClick={() => window.open(viewingDoc.fileUrl, '_blank')}
+                  className="p-1.5 hover:bg-[#ff1e1e]/20 hover:text-[#ff1e1e] text-zinc-300 rounded transition-colors"
+                  title="Open Native PDF in Browser"
+                >
+                  <ExternalLink size={15} />
+                </button>
+              )}
+              <button className="p-1.5 hover:bg-white/10 rounded text-zinc-400 hover:text-white" title="Print"><Printer size={15} /></button>
+              <button className="p-1.5 hover:bg-white/10 rounded text-zinc-400 hover:text-white" title="Download"><Download size={15} /></button>
+            </div>
+          </div>
+
+          <div className="flex-1 flex overflow-hidden relative w-full h-full min-h-0">
+            {showSidebar && viewingDoc && (
+              <div className="w-56 bg-[#242424] border-r border-[#1c1c1c] overflow-y-auto flex flex-col p-4 gap-4 z-10 shadow-xl shrink-0 h-full min-h-0">
+                {Array.from({ length: totalPages === 'Calculating...' ? 1 : totalPages }).map((_, i) => (
+                  <div key={i} className="flex flex-col items-center gap-2 cursor-pointer group">
+                    <div className="w-32 h-44 bg-white/90 rounded border-2 border-transparent group-hover:border-blue-500 shadow-md flex items-center justify-center text-zinc-400 transition-all">
+                      <FileText size={32} className="opacity-20" />
+                    </div>
+                    <span className="text-[10px] text-zinc-500 group-hover:text-white font-mono">Page {i + 1}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex-1 overflow-y-auto flex flex-col items-center p-8 bg-[#525659] h-full min-h-0">
+              {viewingDoc ? (
+                viewingDoc.type === 'PDF' && viewingDoc.rawData ? (
+                  <PdfCanvasRenderer rawData={viewingDoc.rawData} zoom={pdfZoom} pdfLibLoaded={pdfLibLoaded} />
+                ) : (
+                  <div className="w-full flex flex-col items-center space-y-8 max-w-xl">
+                    {pagesToRender.map((pageContent, idx) => (
+                      <div 
+                        key={idx}
+                        className="transition-all duration-300 origin-top shadow-[0_12px_28px_rgba(0,0,0,0.5)] border border-black/15 w-full animate-in fade-in duration-300"
+                        style={{
+                          transform: `scale(${pdfZoom / 100})`,
+                          marginBottom: `${pdfZoom < 100 ? '-30px' : '0px'}`
+                        }}
+                      >
+                        <div className={`p-14 relative min-h-[750px] flex flex-col justify-between transition-colors duration-300 ${
+                          pdfMode === 'dark' ? 'bg-[#18181c] text-zinc-200' : 'bg-white text-zinc-900'
+                        }`}>
+                          <div className={`absolute top-6 left-12 right-12 flex justify-between border-b pb-2 text-[9px] tracking-wider font-mono ${
+                            pdfMode === 'dark' ? 'border-zinc-800 text-zinc-500' : 'border-gray-200 text-gray-400'
+                          }`}>
+                            <span>FINANCEMIND CORE ACADEMIC PLATFORM</span>
+                            <span className="font-bold uppercase">{viewingDoc.type} RESOURCE</span>
+                          </div>
+
+                          <div className="mt-8 flex-1 font-serif leading-relaxed text-xs md:text-sm whitespace-pre-line antialiased select-text">
+                            {pageContent}
+                          </div>
+
+                          <div className={`absolute bottom-6 left-12 right-12 text-center text-[9px] font-mono tracking-widest border-t pt-2 flex justify-between ${
+                            pdfMode === 'dark' ? 'border-zinc-800 text-zinc-500' : 'border-gray-200 text-gray-400'
+                          }`}>
+                            <span className="truncate max-w-[200px]">{viewingDoc.name}</span>
+                            <span className="font-semibold uppercase">PAGE {idx + 1} OF {pagesToRender.length}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              ) : (
+                <div className="m-auto flex flex-col items-center justify-center text-white text-center gap-3">
+                  <FileText size={36} className="opacity-40" />
+                  <span className="text-xs">No active study document loaded. Open any file in the Sources tab to view its pages.</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function ChatWorkspace({ chatHistory, chatInput, setChatInput, handleChatSend, isThinking, theme, sourcesOnly, activeDocsCount, chatBottomRef }) {
+      return (
+        <div className="flex-1 flex flex-col space-y-6 h-full min-h-0">
+          <div className="flex justify-between items-center border-b border-white/5 pb-4 shrink-0">
+            <div>
+              <h2 className={`text-2xl ${neonGradient}`}>Active AI Terminal Workspace</h2>
+              <p className="text-xs text-zinc-500 mt-1">Ask questions directly regarding your reference documents or other generic commercial topics.</p>
+            </div>
+            <span className="px-3 py-1 bg-purple-500/10 text-purple-400 rounded-full text-[10px] font-mono">
+              Sources Toggle: {sourcesOnly ? `STRICT SOURCES ONLY (${activeDocsCount} Selected)` : "UNBOUNDED WEB MODE"}
+            </span>
+          </div>
+
+          <div className="flex-1 bg-zinc-950/20 border border-white/5 rounded-3xl p-6 flex flex-col min-h-0">
+            <div className="flex-1 overflow-y-auto space-y-4 pr-2 min-h-0 pb-2">
+              {chatHistory.map((msg, idx) => (
+                <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[75%] rounded-2xl px-4 py-3 border whitespace-pre-line text-xs md:text-sm leading-relaxed ${
+                    msg.role === 'user'
+                      ? 'bg-purple-600 border-purple-500 text-white rounded-br-sm animate-in slide-in-from-right duration-300'
+                      : 'bg-zinc-900/60 border-white/5 text-zinc-200 rounded-bl-sm shadow-sm animate-in slide-in-from-left duration-300'
+                  }`}>
+                    {formatMarkdownText(msg.content)}
+                  </div>
+                </div>
+              ))}
+              {isThinking && (
+                <div className="flex justify-start">
+                  <div className="rounded-2xl px-4 py-3 bg-zinc-900/60 border border-white/5 flex gap-1 items-center">
+                    <div className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-bounce"></div>
+                    <div className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                    <div className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-bounce" style={{animationDelay: '0.4s'}}></div>
+                  </div>
+                </div>
+              )}
+              <div ref={chatBottomRef} />
+            </div>
+
+            <div className="mt-4 relative shrink-0">
+              <input 
+                type="text"
+                value={chatInput}
+                onChange={e => setChatInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleChatSend()}
+                placeholder="Type query to get answers or trigger diagrams..."
+                className="w-full text-xs rounded-xl py-3.5 pl-4 pr-12 bg-black/40 border border-white/10 text-white outline-none focus:border-purple-500/50"
+              />
+              <button 
+                onClick={handleChatSend}
+                disabled={!chatInput.trim() || isThinking}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-purple-600 hover:bg-purple-500 rounded-lg text-white disabled:opacity-40 transition-all active:scale-95"
+              >
+                <Send size={12} />
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function NotesTab({ notes, setNotes, theme }) {
+      const [isEditingNote, setIsEditingNote] = React.useState(null);
+      const [editedTitle, setEditedTitle] = React.useState('');
+      const [editedContent, setEditedContent] = React.useState('');
+
+      const deleteNote = (id) => {
+        setNotes(prev => prev.filter(n => n.id !== id));
+      };
+
+      return (
+        <div className="flex-1 flex flex-col space-y-6 h-full min-h-0">
+          <div className="border-b border-white/5 pb-4 shrink-0">
+            <h2 className={`text-2xl ${neonGradient}`}>Summaries & Board Revision Cards</h2>
+            <p className="text-xs text-zinc-500 mt-1">Study consolidated flashcards structured directly from curriculum resources.</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1 overflow-y-auto p-2 min-h-0">
+            {notes.map(note => (
+              <div key={note.id} className="p-6 rounded-3xl border border-white/5 bg-zinc-900/10 flex flex-col relative group h-fit">
+                <div className="absolute top-4 right-4 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button 
+                    onClick={() => {
+                      setIsEditingNote(note.id);
+                      setEditedTitle(note.title);
+                      setEditedContent(note.content);
+                    }}
+                    className="p-1 hover:bg-white/10 rounded text-zinc-400"
+                  >
+                    <Edit2 size={12} />
+                  </button>
+                  <button 
+                    onClick={() => deleteNote(note.id)}
+                    className="p-1 hover:bg-white/10 rounded text-zinc-400 hover:text-red-400"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+
+                {isEditingNote === note.id ? (
+                  <div className="space-y-3 flex-1">
+                    <input 
+                      type="text"
+                      value={editedTitle}
+                      onChange={e => setEditedTitle(e.target.value)}
+                      className="w-full bg-black/60 border border-white/10 rounded px-2 py-1.5 text-xs text-white"
+                    />
+                    <textarea 
+                      value={editedContent}
+                      onChange={e => setEditedContent(e.target.value)}
+                      className="w-full bg-black/60 border border-white/10 rounded px-2 py-1.5 text-xs text-white h-24"
+                    />
+                    <button 
+                      onClick={() => {
+                        setNotes(prev => prev.map(n => n.id === note.id ? { ...n, title: editedTitle, content: editedContent } : n));
+                        setIsEditingNote(null);
+                      }}
+                      className="px-2.5 py-1 bg-green-600 text-white rounded text-[10px] font-bold"
+                    >
+                      Save Changes
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex-1">
+                    <h3 className="font-bold text-sm text-purple-400 mb-3">{note.title}</h3>
+                    <div className="text-xs text-zinc-300 whitespace-pre-wrap leading-relaxed">
+                      {formatMarkdownText(note.content)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    function GraphsTab({ generatedGraphs, activeGraphId, setActiveGraphId, setGeneratedGraphs, theme }) {
+      const activeGraph = generatedGraphs.find(g => g.id === activeGraphId);
+
+      const updateActiveGraph = (key, value) => {
+        setGeneratedGraphs(prev => prev.map(g => g.id === activeGraphId ? { ...g, [key]: value } : g));
+      };
+
+      return (
+        <div className="flex-1 flex flex-col space-y-6 h-full min-h-0">
+          <div className="flex flex-wrap gap-4 justify-between items-center border-b border-white/5 pb-4 shrink-0">
+            <div>
+              <h2 className={`text-2xl ${neonGradient}`}>Syllabus Graph Engine</h2>
+              <p className="text-xs text-zinc-500 mt-1">Plot and shift CBSE exam-compliant vector diagrams with proper axis parameters.</p>
+            </div>
+
+            {generatedGraphs.length > 0 && (
+              <div className="flex gap-2">
+                <select 
+                  value={activeGraphId}
+                  onChange={(e) => setActiveGraphId(e.target.value)}
+                  className="px-3 py-1.5 bg-zinc-900 border border-white/10 rounded-xl text-xs text-white outline-none animate-in fade-in duration-300"
+                >
+                  {generatedGraphs.map(g => (
+                    <option key={g.id} value={g.id}>{g.title}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+
+          {generatedGraphs.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-center py-20 text-zinc-500 space-y-4 min-h-0">
+              <BarChart2 size={48} className="opacity-20 text-purple-400" />
+              <p className="text-xs max-w-sm leading-relaxed">
+                Your Graph Canvas is empty. Ask the co-pilot in the **Chat Tab** to draw economics models (e.g. "draw a demand and supply curve with a price ceiling" or "plot an AD-AS aggregate model").
+              </p>
+            </div>
+          ) : activeGraph ? (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 flex-1 overflow-y-auto p-2 min-h-0">
+              <div className="lg:col-span-4 p-6 rounded-2xl border border-white/5 bg-zinc-900/10 space-y-5 h-fit">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-zinc-400">Vector Modifiers</span>
+                
+                {activeGraph.type === 'market_equilibrium' && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-[11px] text-zinc-400 mb-1.5">Shift Demand Curve: ({activeGraph.shiftValue > 0 ? `+${activeGraph.shiftValue}` : activeGraph.shiftValue})</label>
+                      <input 
+                        type="range" 
+                        min="-40" 
+                        max="40" 
+                        value={activeGraph.shiftValue}
+                        onChange={(e) => updateActiveGraph('shiftValue', parseInt(e.target.value))}
+                        className="w-full accent-purple-500 bg-zinc-800 rounded-full h-1"
+                      />
+                    </div>
+
+                    <div className="pt-2 border-t border-white/5">
+                      <span className="block text-[11px] text-zinc-400 mb-2">Syllabus Price Controls</span>
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => updateActiveGraph('ceilingFloor', activeGraph.ceilingFloor === 'ceiling' ? 'none' : 'ceiling')}
+                          className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold border transition-colors ${
+                            activeGraph.ceilingFloor === 'ceiling' ? 'bg-red-500/20 border-red-500/40 text-red-400' : 'bg-transparent border-white/5 text-zinc-400'
+                          }`}
+                        >
+                          Price Ceiling
+                        </button>
+                        <button 
+                          onClick={() => updateActiveGraph('ceilingFloor', activeGraph.ceilingFloor === 'floor' ? 'none' : 'floor')}
+                          className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold border transition-colors ${
+                            activeGraph.ceilingFloor === 'floor' ? 'bg-green-500/20 border-green-500/40 text-green-400' : 'bg-transparent border-white/5 text-zinc-400'
+                          }`}
+                        >
+                          Price Floor
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-white/5">
+                      <span className="block text-[11px] text-zinc-400 mb-2">Government Intervention</span>
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => updateActiveGraph('taxSubsidy', activeGraph.taxSubsidy === 'tax' ? 'none' : 'tax')}
+                          className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold border transition-colors ${
+                            activeGraph.taxSubsidy === 'tax' ? 'bg-orange-500/20 border-orange-500/40 text-orange-400' : 'bg-transparent border-white/5 text-zinc-400'
+                          }`}
+                        >
+                          Impose Tax
+                        </button>
+                        <button 
+                          onClick={() => updateActiveGraph('taxSubsidy', activeGraph.taxSubsidy === 'subsidy' ? 'none' : 'subsidy')}
+                          className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold border transition-colors ${
+                            activeGraph.taxSubsidy === 'subsidy' ? 'bg-teal-500/20 border-teal-500/40 text-teal-400' : 'bg-transparent border-white/5 text-zinc-400'
+                          }`}
+                        >
+                          Inject Subsidy
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeGraph.type === 'ad_as' && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-[11px] text-zinc-400 mb-1.5">Shift Aggregate Demand (AD): ({activeGraph.shiftValue > 0 ? `+${activeGraph.shiftValue}` : activeGraph.shiftValue})</label>
+                      <input 
+                        type="range" 
+                        min="-40" 
+                        max="40" 
+                        value={activeGraph.shiftValue}
+                        onChange={(e) => updateActiveGraph('shiftValue', parseInt(e.target.value))}
+                        className="w-full accent-purple-500 bg-zinc-800 rounded-full h-1"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="lg:col-span-8 bg-zinc-950/40 border border-white/5 rounded-3xl p-6 flex flex-col items-center justify-center min-h-[400px]">
+                {activeGraph.type === 'market_equilibrium' && (
+                  <svg viewBox="0 0 450 350" className="w-full max-w-md h-auto select-none">
+                    <line x1="50" y1="50" x2="50" y2="300" stroke="#444" strokeWidth="1" strokeDasharray="3,3" />
+                    <line x1="50" y1="300" x2="400" y2="300" stroke="#444" strokeWidth="1" strokeDasharray="3,3" />
+                    <line x1="50" y1="300" x2="410" y2="300" stroke="#fff" strokeWidth="2.5" />
+                    <line x1="50" y1="300" x2="50" y2="40" stroke="#fff" strokeWidth="2.5" />
+                    <text x="390" y="325" fill="#aaa" fontSize="11" fontWeight="bold">Quantity (Q)</text>
+                    <text x="15" y="45" fill="#aaa" fontSize="11" fontWeight="bold" transform="rotate(-90 20,45)">Price (P)</text>
+                    
+                    <line x1="90" y1="70" x2="350" y2="270" stroke="#ef4444" strokeWidth="2.5" />
+                    <text x="360" y="275" fill="#ef4444" fontSize="12" fontWeight="bold">D</text>
+
+                    {activeGraph.shiftValue !== 0 && (
+                      <>
+                        <line x1={90 + activeGraph.shiftValue} y1="70" x2={350 + activeGraph.shiftValue} y2="270" stroke="#fb7185" strokeWidth="2" strokeDasharray="4,4" />
+                        <text x={360 + activeGraph.shiftValue} y="275" fill="#fb7185" fontSize="12" fontWeight="bold">D'</text>
+                      </>
+                    )}
+
+                    <line x1="90" y1="270" x2="350" y2="70" stroke="#3b82f6" strokeWidth="2.5" />
+                    <text x="360" y="75" fill="#3b82f6" fontSize="12" fontWeight="bold">S</text>
+                    <circle cx="220" cy="170" r="4.5" fill="#fff" />
+                    <line x1="50" y1="170" x2="220" y2="170" stroke="#fff" strokeWidth="1" strokeDasharray="3,3" />
+                    <line x1="220" y1="300" x2="220" y2="170" stroke="#fff" strokeWidth="1" strokeDasharray="3,3" />
+                    <text x="25" y="174" fill="#fff" fontSize="10">P*</text>
+                    <text x="215" y="318" fill="#fff" fontSize="10">Q*</text>
+
+                    {activeGraph.ceilingFloor === 'ceiling' && (
+                      <>
+                        <line x1="50" y1="220" x2="380" y2="220" stroke="#fb7185" strokeWidth="2" />
+                        <text x="390" y="224" fill="#fb7185" fontSize="10" fontWeight="bold">Ceiling (P_c)</text>
+                      </>
+                    )}
+
+                    {activeGraph.ceilingFloor === 'floor' && (
+                      <>
+                        <line x1="50" y1="120" x2="380" y2="120" stroke="#4ade80" strokeWidth="2" />
+                        <text x="390" y="124" fill="#4ade80" fontSize="10" fontWeight="bold">Floor (P_f)</text>
+                      </>
+                    )}
+                  </svg>
+                )}
+
+                {activeGraph.type === 'ad_as' && (
+                  <svg viewBox="0 0 450 350" className="w-full max-w-md h-auto select-none">
+                    <line x1="50" y1="300" x2="410" y2="300" stroke="#fff" strokeWidth="2.5" />
+                    <line x1="50" y1="300" x2="50" y2="40" stroke="#fff" strokeWidth="2.5" />
+                    <text x="350" y="325" fill="#aaa" fontSize="11" fontWeight="bold">Real GDP (Y)</text>
+                    <text x="15" y="45" fill="#aaa" fontSize="11" fontWeight="bold" transform="rotate(-90 20,45)">Price Level (PL)</text>
+                    
+                    <line x1="90" y1="80" x2="350" y2="260" stroke="#ef4444" strokeWidth="2.5" />
+                    <text x="360" y="265" fill="#ef4444" fontSize="12" fontWeight="bold">AD</text>
+
+                    {activeGraph.shiftValue !== 0 && (
+                      <>
+                        <line x1={90 + activeGraph.shiftValue} y1="80" x2={350 + activeGraph.shiftValue} y2="260" stroke="#fb7185" strokeWidth="2" strokeDasharray="4,4" />
+                        <text x={360 + activeGraph.shiftValue} y="265" fill="#fb7185" fontSize="12" fontWeight="bold">AD'</text>
+                      </>
+                    )}
+
+                    <line x1="90" y1="260" x2="350" y2="80" stroke="#3b82f6" strokeWidth="2.5" />
+                    <text x="360" y="85" fill="#3b82f6" fontSize="12" fontWeight="bold">SRAS</text>
+                    <line x1="220" y1="300" x2="220" y2="50" stroke="#10b981" strokeWidth="2" />
+                    <text x="210" y="45" fill="#10b981" fontSize="11" fontWeight="bold">LRAS</text>
+                  </svg>
+                )}
+
+                {activeGraph.type === 'inflation_gdp' && (
+                  <svg viewBox="0 0 450 350" className="w-full max-w-md h-auto select-none">
+                    <line x1="50" y1="300" x2="410" y2="300" stroke="#fff" strokeWidth="2.5" />
+                    <line x1="50" y1="300" x2="50" y2="40" stroke="#fff" strokeWidth="2.5" />
+                    <line x1="50" y1="300" x2="320" y2="70" stroke="#aaa" strokeWidth="1.5" strokeDasharray="3,3" />
+                    <text x="300" y="325" fill="#aaa" fontSize="10">GDP Output</text>
+                    <text x="15" y="80" fill="#aaa" fontSize="10" transform="rotate(-90 20,80)">Spending</text>
+                  </svg>
+                )}
+
+                <div className="mt-4 flex gap-2">
+                  <button class="px-4 py-1.5 bg-purple-600 hover:bg-purple-500 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 transition-all">
+                    <Download size={13} /> Export Vector PNG
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      );
+    }
+
+    function MindMapsTab({ selectedMap, setSelectedMap, collapsedNodes, setCollapsedNodes, theme, mindMapData }) {
+      const activeMapData = mindMapData[selectedMap];
+      const hasMaps = Object.keys(mindMapData).length > 0;
+
+      const toggleNode = (nodeId) => {
+        setCollapsedNodes(prev => ({ ...prev, [nodeId]: !prev[nodeId] }));
+      };
+
+      const renderNode = (node) => {
+        const isCollapsed = collapsedNodes[node.id];
+        const hasChildren = node.children && node.children.length > 0;
+
+        return (
+          <div key={node.id} className="flex flex-col items-center relative animate-in fade-in duration-300">
+            <div 
+              onClick={() => hasChildren && toggleNode(node.id)}
+              className={`p-4 rounded-2xl border transition-all select-none cursor-pointer flex flex-col items-center text-center max-w-[200px] z-10 ${
+                isCollapsed 
+                  ? 'bg-purple-600/30 border-purple-500/50 shadow-[0_0_12px_rgba(147,51,234,0.3)]' 
+                  : 'bg-zinc-900/60 border-white/10 hover:border-purple-500/40'
+              }`}
+            >
+              <span className="text-[11px] font-bold text-white leading-tight">{node.name}</span>
+              <span className="text-[9px] text-zinc-400 mt-1 leading-normal italic">{node.desc}</span>
+              {hasChildren && (
+                <div className="mt-2 text-zinc-500">
+                  {isCollapsed ? <ChevronDown size={12} className="animate-bounce" /> : <ChevronRight size={12} />}
+                </div>
+              )}
+            </div>
+
+            {hasChildren && !isCollapsed && (
+              <div className="flex gap-6 mt-8 relative">
+                <div className="absolute top-[-16px] left-[10%] right-[10%] h-[1px] bg-white/10"></div>
+                <div className="absolute top-[-32px] left-1/2 -translate-x-1/2 w-[1px] h-4 bg-white/10"></div>
+                
+                {node.children.map(child => (
+                  <div key={child.id} className="relative">
+                    <div className="absolute top-[-16px] left-1/2 -translate-x-1/2 w-[1px] h-4 bg-white/10"></div>
+                    {renderNode(child)}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      return (
+        <div className="flex-1 flex flex-col space-y-6 h-full min-h-0">
+          <div className="flex flex-wrap justify-between items-center border-b border-white/5 pb-4 gap-4 select-none shrink-0">
+            <div>
+              <h2 className={`text-2xl ${neonGradient}`}>Concept Mind Map Workspace</h2>
+              <p className="text-white/60 text-xs">Hierarchical visual structures to memorize core economic aggregates.</p>
+            </div>
+
+            {hasMaps && (
+              <div className="flex items-center gap-3">
+                <select 
+                  value={selectedMap}
+                  onChange={(e) => setSelectedMap(e.target.value)}
+                  className="px-3 py-1.5 bg-zinc-900 border border-white/10 rounded-xl text-xs text-white outline-none"
+                >
+                  {Object.keys(mindMapData).map((key) => (
+                    <option key={key} value={key}>{mindMapData[key].name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+
+          {!hasMaps ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-center py-20 text-zinc-500 space-y-4 min-h-0">
+              <GitCommit size={48} className="opacity-20 text-purple-400" />
+              <p className="text-xs max-w-sm leading-relaxed">
+                Your Mind Map Canvas is empty. Ask the co-pilot in the **Chat Tab** to build visual concept maps (e.g. "create a mind map of Balance of Payments" or "generate a National Income accounting map").
+              </p>
+            </div>
+          ) : activeMapData ? (
+            <div className="flex-1 bg-zinc-950/40 border border-white/5 rounded-3xl p-12 overflow-auto flex items-center justify-center min-h-0">
+              <div className="inline-block py-6">
+                {renderNode(activeMapData)}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      );
+    }
+
+    function SettingsTab({ apiKey, handleKeyChange, apiStatus, apiErrorMsg, validateApiKey, sourcesOnly, setSourcesOnly, googleGrounding, setGoogleGrounding, theme }) {
+      return (
+        <div className="flex-1 flex flex-col space-y-6 overflow-y-auto pr-2 min-h-0">
+          <div className="border-b border-[#ffffff]/10 pb-4 shrink-0">
+            <h2 className={`text-2xl ${neonGradient}`}>Co-pilot Configuration Workspace</h2>
+            <p className="text-xs text-zinc-500 mt-1">Configure systemic controls, manage LLM modes, and validate security parameters.</p>
+          </div>
+
+          <div className="space-y-6 max-w-2xl shrink-0">
+            <div className="p-6 rounded-2xl border border-white/5 bg-zinc-900/10 space-y-4">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Settings size={15} className="text-purple-400" />
+                Gemini Flash Ingestion Credentials
+              </h3>
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                Your key is used directly to establish calls to the Google Generative Language endpoints.
+              </p>
+              <div className="flex gap-2">
+                <input 
+                  type="password"
+                  placeholder="Paste Gemini API Key (e.g. AIzaSyB...)"
+                  value={apiKey}
+                  onChange={e => handleKeyChange(e.target.value)}
+                  className="flex-1 bg-black/60 border border-white/10 rounded-xl px-4 py-3 text-xs text-white outline-none focus:border-purple-500 font-mono"
+                />
+                <button 
+                  onClick={() => validateApiKey(apiKey)}
+                  disabled={apiStatus === 'checking'}
+                  className="px-5 bg-purple-600 text-white text-xs font-bold rounded-xl hover:bg-purple-500 active:scale-95 transition-all disabled:opacity-50"
+                >
+                  {apiStatus === 'checking' ? 'Testing...' : 'Test and Validate'}
+                </button>
+              </div>
+              {apiErrorMsg && (
+                <p className={`text-xs font-medium font-mono ${apiStatus === 'valid' ? 'text-green-400' : 'text-red-400'}`}>
+                  {apiErrorMsg}
+                </p>
+              )}
+            </div>
+
+            <div className="p-6 rounded-2xl border border-white/5 bg-zinc-900/10 space-y-4">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Layers size={15} className="text-purple-400" />
+                Active Intake Modes
+              </h3>
+
+              <div className="flex items-center justify-between p-3.5 bg-black/20 rounded-xl border border-white/5">
+                <div>
+                  <span className="block text-xs font-semibold text-white">Strict Source Scope</span>
+                  <span className="text-[10px] text-zinc-500 mt-0.5 block">AI ignores external web data and only uses validated knowledge base files.</span>
+                </div>
+                <button 
+                  onClick={() => setSourcesOnly(!sourcesOnly)}
+                  className={`w-12 h-6 rounded-full p-1 transition-colors duration-300 relative ${sourcesOnly ? 'bg-purple-600' : 'bg-zinc-800'}`}
+                >
+                  <div className={`w-4 h-4 bg-white rounded-full shadow-md transition-transform duration-300 ${sourcesOnly ? 'translate-x-6' : 'translate-x-0'}`}></div>
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between p-3.5 bg-[#1a1a1a]/20 rounded-xl border border-white/5">
+                <div>
+                  <span className="block text-xs font-semibold text-white">Integrate Search Grounding</span>
+                  <span className="text-[10px] text-zinc-500 mt-0.5 block">Permit the Gemini model to execute web searches for real-time commerce events.</span>
+                </div>
+                <button 
+                  onClick={() => setGoogleGrounding(!googleGrounding)}
+                  className={`w-12 h-6 rounded-full p-1 transition-colors duration-300 relative ${googleGrounding ? 'bg-purple-600' : 'bg-zinc-800'}`}
+                >
+                  <div className={`w-4 h-4 bg-white rounded-full shadow-md transition-transform duration-300 ${googleGrounding ? 'translate-x-6' : 'translate-x-0'}`}></div>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function PdfCanvasRenderer({ rawData, zoom, pdfLibLoaded }) {
+      const [pages, setPages] = React.useState([]);
+      const [rendering, setRendering] = React.useState(false);
+      const containerRef = React.useRef(null);
+
+      React.useEffect(() => {
+        if (!pdfLibLoaded || !rawData || !window.pdfjsLib) return;
+
+        let isCurrent = true;
+        setRendering(true);
+        setPages([]);
+
+        const loadPdf = async () => {
+          try {
+            const pdfjsLib = window.pdfjsLib;
+            const pdf = await pdfjsLib.getDocument({ data: rawData }).promise;
+            const renderedPages = [];
+
+            for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+              if (!isCurrent) return;
+              const page = await pdf.getPage(pageNum);
+              renderedPages.push(page);
+            }
+
+            if (isCurrent) {
+              setPages(renderedPages);
+              setRendering(false);
+            }
+          } catch (err) {
+            console.error("PDF.js render task crashed:", err);
+            setRendering(false);
+          }
+        };
+
+        loadPdf();
+
+        return () => {
+          isCurrent = false;
+        };
+      }, [rawData, pdfLibLoaded]);
+
+      return (
+        <div ref={containerRef} className="w-full flex flex-col items-center space-y-8 py-8">
+          {rendering && (
+            <div className="flex flex-col items-center justify-center p-12 text-zinc-300 gap-3">
+              <Loader className="animate-spin text-purple-400" size={24} />
+              <span className="text-xs font-mono">Parsing PDF pages onto local canvas...</span>
+            </div>
+          )}
+
+          {pages.map((page, index) => (
+            <PdfPageCanvas key={index} page={page} pageNum={index + 1} totalPages={pages.length} zoom={zoom} />
+          ))}
+        </div>
+      );
+    }
+
+    function PdfPageCanvas({ page, pageNum, totalPages, zoom }) {
+      const canvasRef = React.useRef(null);
+      const [loading, setLoading] = React.useState(true);
+
+      React.useEffect(() => {
+        if (!page || !canvasRef.current) return;
+
+        let renderTask = null;
+        const renderPage = async () => {
+          setLoading(true);
+          const canvas = canvasRef.current;
+          const context = canvas.getContext('2d');
+
+          const scale = (zoom / 100) * 1.5; 
+          const viewport = page.getViewport({ scale });
+
+          const dpr = window.devicePixelRatio || 1;
+          canvas.width = viewport.width * dpr;
+          canvas.height = viewport.height * dpr;
+          canvas.style.width = `${viewport.width}px`;
+          canvas.style.height = `${viewport.height}px`;
+
+          context.scale(dpr, dpr);
+
+          const renderContext = {
+            canvasContext: context,
+            viewport: viewport
+          };
+
+          try {
+            renderTask = page.render(renderContext);
+            await renderTask.promise;
+            setLoading(false);
+          } catch (err) {
+            if (err.name !== 'Heading') {
+              console.error("Single page render error:", err);
+            }
+          }
+        };
+
+        renderPage();
+
+        return () => {
+          if (renderTask) {
+            renderTask.cancel();
+          }
+        };
+      }, [page, zoom]);
+
+      return (
+        <div className="relative shadow-2xl rounded-lg overflow-hidden border border-zinc-800 bg-white">
+          {loading && (
+            <div className="absolute inset-0 bg-white/90 backdrop-blur-xs flex items-center justify-center text-xs text-zinc-500 font-mono">
+              Page {pageNum} is drawing...
+            </div>
+          )}
+          <canvas ref={canvasRef} className="block max-w-full" />
+          <div className="absolute bottom-3 right-4 px-2.5 py-1 bg-black/75 rounded text-[9px] font-mono text-zinc-300">
+            PAGE {pageNum} OF {totalPages}
+          </div>
+        </div>
+      );
+    }
+
+    // --- RENDER BOOTSTRAPPER ---
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+
+  <style>
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+  </style>
+
+</body>
+</html>
